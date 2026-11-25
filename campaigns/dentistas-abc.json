@@ -1,0 +1,36 @@
+{
+  "CampaignName": "dentistas-abc",
+  "NicheDescription": "Clínicas odontológicas e dentistas independentes na região do ABC Paulista sem site próprio estruturado",
+  "SearchQueries": [
+    "Dentista em Mauá SP",
+    "Clínica odontológica em Santo André SP",
+    "Dentista em São Bernardo do Campo SP",
+    "Odontologia em São Caetano do Sul SP",
+    "Consultório odontológico em Diadema SP"
+  ],
+  "ExcludeKeywords": [
+    "OdontoCompany",
+    "Sorridents",
+    "Ortobom",
+    "OrthoDontic",
+    "Oral Sin",
+    "SUS",
+    "UBS",
+    "Posto de Saúde",
+    "Hospital",
+    "Universidade",
+    "Faculdade"
+  ],
+  "MaxFranchiseBranches": 3,
+  "Filters": {
+    "MinRating": 4.0,
+    "MinReviews": 10,
+    "MaxReviews": 300,
+    "AllowHasWebsite": false
+  },
+  "Limits": {
+    "TargetValidLeads": 100,
+    "PreviewBatchSize": 5,
+    "MaxBudgetUsd": 0.80
+  }
+}
