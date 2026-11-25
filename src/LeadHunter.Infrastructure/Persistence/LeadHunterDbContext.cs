@@ -15,6 +15,7 @@ public sealed class LeadHunterDbContext : DbContext
     public DbSet<DiscardedLead> DiscardedLeads => Set<DiscardedLead>();
     public DbSet<ApiCostLog> ApiCostLogs => Set<ApiCostLog>();
     public DbSet<QueryProgress> QueryProgresses => Set<QueryProgress>();
+    public DbSet<DailyQuotaUsage> DailyQuotaUsages => Set<DailyQuotaUsage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -27,6 +28,8 @@ public sealed class LeadHunterDbContext : DbContext
             entity.Property(c => c.Name).IsRequired().HasMaxLength(200);
             entity.Property(c => c.NicheDescription).HasMaxLength(500);
             entity.Property(c => c.ConfigPath).HasMaxLength(500);
+            entity.Property(c => c.SpreadsheetId).HasMaxLength(200);
+            entity.Property(c => c.SpreadsheetUrl).HasMaxLength(500);
             entity.Property(c => c.MaxBudgetUsd).HasPrecision(18, 4);
             entity.HasIndex(c => c.Name).IsUnique();
         });
@@ -39,17 +42,30 @@ public sealed class LeadHunterDbContext : DbContext
             entity.Property(l => l.DisplayName).IsRequired().HasMaxLength(300);
             entity.Property(l => l.NormalizedName).IsRequired().HasMaxLength(300);
             entity.Property(l => l.FormattedAddress).HasMaxLength(500);
+            entity.Property(l => l.City).HasMaxLength(120);
             entity.Property(l => l.BusinessStatus).HasMaxLength(64);
             entity.Property(l => l.RawPhoneNumber).HasMaxLength(64);
             entity.Property(l => l.MobilePhone).HasMaxLength(32);
             entity.Property(l => l.LandlinePhone).HasMaxLength(32);
+            entity.Property(l => l.PrimaryPhone).HasMaxLength(32);
+            entity.Property(l => l.SecondaryPhone).HasMaxLength(32);
+            entity.Property(l => l.InstagramHandle).HasMaxLength(100);
+            entity.Property(l => l.InstagramUrl).HasMaxLength(500);
+            entity.Property(l => l.Cnpj).HasMaxLength(32);
+            entity.Property(l => l.OwnerName).HasMaxLength(200);
+            entity.Property(l => l.OwnerConfidence).HasMaxLength(32);
+            entity.Property(l => l.OwnerSource).HasMaxLength(200);
+            entity.Property(l => l.ReviewerFirstName).HasMaxLength(100);
+            entity.Property(l => l.PraisedService).HasMaxLength(120);
             entity.Property(l => l.WebsiteUri).HasMaxLength(1000);
             entity.Property(l => l.GoogleMapsUri).HasMaxLength(1000);
 
             // Idempotency: never store or export the same PlaceId twice
             entity.HasIndex(l => l.PlaceId).IsUnique();
             entity.HasIndex(l => new { l.CampaignId, l.Tier });
+            entity.HasIndex(l => new { l.CampaignId, l.EnrichmentStatus });
             entity.HasIndex(l => new { l.CampaignId, l.NormalizedName });
+            entity.HasIndex(l => new { l.PrimaryPhone, l.ExportedAtUtc });
 
             entity.HasOne(l => l.Campaign)
                 .WithMany(c => c.Leads)
@@ -81,9 +97,10 @@ public sealed class LeadHunterDbContext : DbContext
         {
             entity.ToTable("ApiCostLog");
             entity.HasKey(a => a.Id);
+            entity.Property(a => a.Provider).IsRequired().HasMaxLength(64);
             entity.Property(a => a.Endpoint).IsRequired().HasMaxLength(128);
             entity.Property(a => a.QueryText).IsRequired().HasMaxLength(300);
-            entity.Property(a => a.EstimatedCostUsd).HasPrecision(18, 4);
+            entity.Property(a => a.EstimatedCostUsd).HasPrecision(18, 6);
 
             entity.HasIndex(a => new { a.CampaignId, a.RequestedAtUtc });
 
@@ -106,6 +123,14 @@ public sealed class LeadHunterDbContext : DbContext
                 .WithMany(c => c.QueryProgresses)
                 .HasForeignKey(q => q.CampaignId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<DailyQuotaUsage>(entity =>
+        {
+            entity.ToTable("DailyQuotaUsage");
+            entity.HasKey(q => q.Id);
+            entity.Property(q => q.ServiceName).IsRequired().HasMaxLength(64);
+            entity.HasIndex(q => new { q.ServiceName, q.DateUtc }).IsUnique();
         });
     }
 }

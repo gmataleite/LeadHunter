@@ -7,11 +7,21 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Spectre.Console;
 
-// Load .env if present (searches up parent directories so running from bin/ or repo root works seamlessly)
-DotEnv.Load(new DotEnvOptions(
-    ignoreExceptions: true,
-    probeForEnv: true,
-    probeLevelsToSearch: 5));
+// Load .env from current working directory first, then probe parent directories from BaseDirectory
+var cwdEnvPath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
+if (File.Exists(cwdEnvPath))
+{
+    DotEnv.Load(new DotEnvOptions(
+        ignoreExceptions: true,
+        envFilePaths: [cwdEnvPath]));
+}
+else
+{
+    DotEnv.Load(new DotEnvOptions(
+        ignoreExceptions: true,
+        probeForEnv: true,
+        probeLevelsToSearch: 8));
+}
 
 var configuration = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)

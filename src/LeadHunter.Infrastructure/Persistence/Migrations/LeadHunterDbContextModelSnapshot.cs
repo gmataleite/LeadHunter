@@ -32,14 +32,25 @@ namespace LeadHunter.Infrastructure.Persistence.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<decimal>("EstimatedCostUsd")
-                        .HasPrecision(18, 4)
+                        .HasPrecision(18, 6)
                         .HasColumnType("TEXT");
 
                     b.Property<int>("HttpStatusCode")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("InputTokens")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("OutputTokens")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("PageNumber")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("QueryText")
                         .IsRequired()
@@ -50,6 +61,9 @@ namespace LeadHunter.Infrastructure.Persistence.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<int>("ResultsCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("TotalTokens")
                         .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
@@ -90,6 +104,14 @@ namespace LeadHunter.Infrastructure.Persistence.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("SpreadsheetId")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SpreadsheetUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("Status")
                         .HasColumnType("INTEGER");
 
@@ -99,6 +121,37 @@ namespace LeadHunter.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("Campaigns", (string)null);
+                });
+
+            modelBuilder.Entity("LeadHunter.Core.Entities.DailyQuotaUsage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("DailyLimit")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateOnly>("DateUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("QueriesUsed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ServiceName")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServiceName", "DateUtc")
+                        .IsUnique();
+
+                    b.ToTable("DailyQuotaUsage", (string)null);
                 });
 
             modelBuilder.Entity("LeadHunter.Core.Entities.DiscardedLead", b =>
@@ -163,6 +216,9 @@ namespace LeadHunter.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime?>("AnalyzedAtUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("BusinessStatus")
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
@@ -170,12 +226,26 @@ namespace LeadHunter.Infrastructure.Persistence.Migrations
                     b.Property<int>("CampaignId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("City")
+                        .HasMaxLength(120)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Cnpj")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("EnrichmentStatus")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("ExportedAtUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("FormattedAddress")
@@ -186,7 +256,18 @@ namespace LeadHunter.Infrastructure.Persistence.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("InstagramHandle")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("InstagramUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("IsExported")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool?>("IsTargetNiche")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("LandlinePhone")
@@ -202,9 +283,29 @@ namespace LeadHunter.Infrastructure.Persistence.Migrations
                         .HasMaxLength(300)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("OwnerConfidence")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OwnerName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OwnerSource")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("PlaceId")
                         .IsRequired()
                         .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PraisedService")
+                        .HasMaxLength(120)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PrimaryPhone")
+                        .HasMaxLength(32)
                         .HasColumnType("TEXT");
 
                     b.Property<double?>("Rating")
@@ -214,7 +315,15 @@ namespace LeadHunter.Infrastructure.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ReviewerFirstName")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("ReviewsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SecondaryPhone")
+                        .HasMaxLength(32)
                         .HasColumnType("TEXT");
 
                     b.Property<int>("Tier")
@@ -226,6 +335,9 @@ namespace LeadHunter.Infrastructure.Persistence.Migrations
                     b.Property<int?>("UserRatingCount")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("WebSnippetsJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("WebsiteUri")
                         .HasMaxLength(1000)
                         .HasColumnType("TEXT");
@@ -235,9 +347,13 @@ namespace LeadHunter.Infrastructure.Persistence.Migrations
                     b.HasIndex("PlaceId")
                         .IsUnique();
 
+                    b.HasIndex("CampaignId", "EnrichmentStatus");
+
                     b.HasIndex("CampaignId", "NormalizedName");
 
                     b.HasIndex("CampaignId", "Tier");
+
+                    b.HasIndex("PrimaryPhone", "ExportedAtUtc");
 
                     b.ToTable("Leads", (string)null);
                 });

@@ -26,7 +26,7 @@ public static class ConsoleRenderer
             var warningPanel = new Panel(
                 $"[bold yellow]CIRCUIT BREAKER DE ORÇAMENTO ATIVADO![/]\n" +
                 $"A coleta foi interrompida graciosamente para não exceder o limite de [bold]${summary.MaxBudgetUsd:0.000}[/].\n" +
-                $"Gasto acumulado da campanha: [bold red]${summary.TotalCampaignSpentUsd:0.000}[/].\n" +
+                $"Gasto acumulado da campanha: [bold red]${summary.TotalCampaignSpentUsd:0.0000}[/].\n" +
                 $"Use [cyan]resume[/] após ajustar o orçamento se desejar continuar de onde parou.")
             {
                 Border = BoxBorder.Double,
@@ -34,6 +34,41 @@ public static class ConsoleRenderer
                 Header = new PanelHeader(" Alerta de Orçamento ")
             };
             AnsiConsole.Write(warningPanel);
+            AnsiConsole.WriteLine();
+        }
+
+        if (summary.EnrichmentPausedByDailyQuota)
+        {
+            var quotaPanel = new Panel(
+                $"[bold yellow]COTA DIÁRIA DO GOOGLE CUSTOM SEARCH ATINGIDA ({summary.QuotaUsedToday}/{summary.QuotaDailyLimit})![/]\n" +
+                $"[bold]{summary.PendingQuotaCount}[/] lead(s) restante(s) foram marcados como [cyan]PendingQuota[/] e listados na aba [bold]Pendentes_Cota[/].\n" +
+                $"Execute [cyan]resume[/] amanhã (UTC) para continuar o enriquecimento sem perder progresso.")
+            {
+                Border = BoxBorder.Double,
+                BorderStyle = new Style(Color.Orange1),
+                Header = new PanelHeader(" Cota Diária Custom Search ")
+            };
+            AnsiConsole.Write(quotaPanel);
+            AnsiConsole.WriteLine();
+        }
+
+        if (!string.IsNullOrWhiteSpace(summary.SpreadsheetUrl))
+        {
+            var sheetsPanel = new Panel(
+                $"[bold green]Planilha Google Sheets atualizada com sucesso![/]\n" +
+                $"Leads exportados nesta sessão ([bold]Leads_Prontos[/]): [bold green]{summary.ExportedLeadsCount}[/]\n" +
+                $"Link direto: [link={Markup.Escape(summary.SpreadsheetUrl)}][bold underline cyan]{Markup.Escape(summary.SpreadsheetUrl)}[/][/]")
+            {
+                Border = BoxBorder.Rounded,
+                BorderStyle = new Style(Color.Green),
+                Header = new PanelHeader(" Google Sheets ")
+            };
+            AnsiConsole.Write(sheetsPanel);
+            AnsiConsole.WriteLine();
+        }
+        else if (!string.IsNullOrWhiteSpace(summary.SheetsExportSkippedReason))
+        {
+            AnsiConsole.MarkupLine($"[yellow]Aviso Google Sheets:[/] {Markup.Escape(summary.SheetsExportSkippedReason)}");
             AnsiConsole.WriteLine();
         }
 
@@ -48,12 +83,25 @@ public static class ConsoleRenderer
 
         grid.AddRow("[bold]Campanha:[/]", Markup.Escape(summary.CampaignName));
         grid.AddRow("[bold]Modo:[/]", $"[cyan]{summary.Mode}[/]");
-        grid.AddRow("[bold]Chamadas API (sessão):[/]", $"{summary.ApiCallsMade}");
-        grid.AddRow("[bold]Custo da sessão:[/]", $"${summary.SessionSpentUsd:0.000}");
-        grid.AddRow("[bold]Custo acumulado / Teto:[/]", $"[{budgetColor}]${summary.TotalCampaignSpentUsd:0.000}[/] / ${summary.MaxBudgetUsd:0.000} ({budgetRatio:0.0}%)");
-        grid.AddRow("[bold]Novos leads válidos:[/]", $"[green]{summary.ValidLeadsAdded}[/]");
-        grid.AddRow("[bold]Descartados (auditoria):[/]", $"[yellow]{summary.DiscardedCount}[/]");
-        grid.AddRow("[bold]Duplicados ignorados:[/]", $"[grey]{summary.SkippedDuplicates}[/]");
+        grid.AddRow("[bold]Chamadas Places API:[/]", $"{summary.ApiCallsMade}");
+        grid.AddRow("[bold]Chamadas Custom Search:[/]", $"{summary.SearchEnrichCallsMade} (Tier 1: {summary.EnrichedTier1Count} | Tier 2: {summary.EnrichedTier2Count})");
+        grid.AddRow("[bold]Cota diária Search (UTC):[/]", $"{summary.QuotaUsedToday} / {summary.QuotaDailyLimit}");
+        grid.AddRow("[bold]Análises Gemini:[/]", $"{summary.GeminiAnalyzedCount} (Tokens: {summary.TotalInputTokens:N0} in / {summary.TotalOutputTokens:N0} out)");
+        grid.AddRow("[bold]Custo da sessão:[/]", $"${summary.SessionSpentUsd:0.0000}");
+        grid.AddRow("[bold]Custo acumulado / Teto:[/]", $"[{budgetColor}]${summary.TotalCampaignSpentUsd:0.0000}[/] / ${summary.MaxBudgetUsd:0.000} ({budgetRatio:0.0}%)");
+
+        if (summary.ProjectedCostForTargetUsd.HasValue)
+        {
+            grid.AddRow(
+                $"[bold]Projeção para {summary.TargetValidLeads} leads:[/]",
+                $"[bold cyan]~${summary.ProjectedCostForTargetUsd.Value:0.0000}[/]");
+        }
+
+        grid.AddRow("[bold]Leads válidos coletados:[/]", $"[green]{summary.ValidLeadsAdded}[/] (Com celular confirmado na sessão: [bold green]{summary.ConfirmedMobileLeadsCount}[/])");
+        grid.AddRow("[bold]Donos identificados (Alta/Média):[/]", $"[bold cyan]{summary.OwnersIdentifiedCount}[/]");
+        grid.AddRow("[bold]Exportados para Google Sheets:[/]", $"[bold green]{summary.ExportedLeadsCount}[/] (Duplicados por telefone ignorados: {summary.SkippedExportDuplicatePhoneCount})");
+        grid.AddRow("[bold]Descartados (auditoria):[/]", $"[yellow]{summary.DiscardedCount}[/] (Fora do nicho Gemini: {summary.DiscardedByNicheCount})");
+        grid.AddRow("[bold]Duplicados PlaceId ignorados:[/]", $"[grey]{summary.SkippedDuplicates}[/]");
 
         var panel = new Panel(grid)
         {
@@ -62,10 +110,19 @@ public static class ConsoleRenderer
         };
         AnsiConsole.Write(panel);
 
-        if (summary.NewLeads.Count > 0)
+        if (summary.ExportedLeads.Count > 0)
         {
             AnsiConsole.WriteLine();
-            RenderLeadsTable(summary.NewLeads);
+            RenderLeadsTable(summary.ExportedLeads, "[bold green]Leads Exportados (Leads_Prontos)[/]");
+        }
+        else
+        {
+            var leadsToRender = summary.ProcessedLeads.Count > 0 ? summary.ProcessedLeads : summary.NewLeads;
+            if (leadsToRender.Count > 0)
+            {
+                AnsiConsole.WriteLine();
+                RenderLeadsTable(leadsToRender, "[bold cyan]Leads Processados na Sessão[/]");
+            }
         }
 
         if (summary.DiscardBreakdown.Count > 0)
@@ -75,36 +132,59 @@ public static class ConsoleRenderer
         }
     }
 
-    public static void RenderLeadsTable(IReadOnlyList<Lead> leads)
+    public static void RenderLeadsTable(IReadOnlyList<Lead> leads, string title)
     {
         var table = new Table()
             .Border(TableBorder.Rounded)
-            .Title("[bold cyan]Leads Coletados na Sessão[/]")
+            .Title(title)
             .AddColumn("Tier")
             .AddColumn("Empresa")
-            .AddColumn("Celular")
-            .AddColumn("Fixo")
-            .AddColumn(new TableColumn("Nota").RightAligned())
-            .AddColumn(new TableColumn("Avaliações").RightAligned())
-            .AddColumn("Website / Social");
+            .AddColumn("Tel. Principal")
+            .AddColumn("Tel. 2")
+            .AddColumn("Instagram")
+            .AddColumn("Dono (Confiança)")
+            .AddColumn("Elogio (Cliente)")
+            .AddColumn("Status");
 
         foreach (var lead in leads.OrderBy(l => l.Tier).ThenByDescending(l => l.Rating))
         {
             var tierLabel = lead.Tier switch
             {
-                LeadTier.Tier1HighPriority => "[bold green]Tier 1 (Alta)[/]",
-                LeadTier.Tier2MediumPriority => "[bold yellow]Tier 2 (Média)[/]",
-                _ => "[grey]Tier 3 (Baixa)[/]"
+                LeadTier.Tier1HighPriority => "[bold green]T1[/]",
+                LeadTier.Tier2MediumPriority => "[bold yellow]T2[/]",
+                _ => "[grey]T3[/]"
             };
+
+            var ownerCell = string.IsNullOrWhiteSpace(lead.OwnerName)
+                ? "-"
+                : $"{lead.OwnerName} ({lead.OwnerConfidence ?? "?"})";
+
+            var praiseCell = string.IsNullOrWhiteSpace(lead.PraisedService)
+                ? "-"
+                : string.IsNullOrWhiteSpace(lead.ReviewerFirstName)
+                    ? lead.PraisedService
+                    : $"{lead.PraisedService} ({lead.ReviewerFirstName})";
+
+            var statusLabel = lead.IsExported
+                ? "[bold green]Exported[/]"
+                : lead.EnrichmentStatus switch
+                {
+                    EnrichmentStatus.Completed => "[green]Completed[/]",
+                    EnrichmentStatus.Enriched => "[cyan]Enriched[/]",
+                    EnrichmentStatus.PendingQuota => "[yellow]PendingQuota[/]",
+                    EnrichmentStatus.DiscardedByNiche => "[red]OffNiche[/]",
+                    _ => "[grey]Pending[/]"
+                };
 
             table.AddRow(
                 tierLabel,
-                Markup.Escape(Truncate(lead.DisplayName, 36)),
-                Markup.Escape(lead.MobilePhone ?? "-"),
-                Markup.Escape(lead.LandlinePhone ?? "-"),
-                lead.Rating?.ToString("0.0") ?? "-",
-                lead.UserRatingCount?.ToString() ?? "0",
-                Markup.Escape(Truncate(lead.WebsiteUri ?? "-", 34)));
+                Markup.Escape(Truncate(lead.DisplayName, 26)),
+                Markup.Escape(lead.PrimaryPhone ?? lead.MobilePhone ?? "-"),
+                Markup.Escape(lead.SecondaryPhone ?? lead.LandlinePhone ?? "-"),
+                Markup.Escape(Truncate(lead.InstagramHandle ?? "-", 18)),
+                Markup.Escape(Truncate(ownerCell, 22)),
+                Markup.Escape(Truncate(praiseCell, 22)),
+                statusLabel);
         }
 
         AnsiConsole.Write(table);
@@ -139,11 +219,11 @@ public static class ConsoleRenderer
             .Title("[bold cyan]Status das Campanhas[/]")
             .AddColumn("Campanha")
             .AddColumn("Status")
-            .AddColumn(new TableColumn("Leads").RightAligned())
+            .AddColumn(new TableColumn("Leads (Cel.)").RightAligned())
+            .AddColumn(new TableColumn("Export.").RightAligned())
+            .AddColumn(new TableColumn("Donos").RightAligned())
             .AddColumn(new TableColumn("T1 / T2 / T3").Centered())
-            .AddColumn(new TableColumn("Descartados").RightAligned())
-            .AddColumn(new TableColumn("Queries").Centered())
-            .AddColumn(new TableColumn("Chamadas").RightAligned())
+            .AddColumn(new TableColumn("Cota Hoje").Centered())
             .AddColumn(new TableColumn("Gasto / Orçamento").RightAligned());
 
         foreach (var r in reports)
@@ -152,6 +232,7 @@ public static class ConsoleRenderer
             {
                 CampaignStatus.Completed => "[green]Completed[/]",
                 CampaignStatus.PausedByBudget => "[yellow]PausedByBudget[/]",
+                CampaignStatus.PausedByQuota => "[orange1]PausedByQuota[/]",
                 CampaignStatus.Running => "[cyan]Running[/]",
                 CampaignStatus.Failed => "[red]Failed[/]",
                 _ => "[grey]Created[/]"
@@ -160,21 +241,30 @@ public static class ConsoleRenderer
             table.AddRow(
                 Markup.Escape(r.CampaignName),
                 statusMarkup,
-                $"[bold]{r.TotalValidLeads}[/]",
+                $"[bold]{r.TotalValidLeads}[/] ([green]{r.ConfirmedMobileCount}[/])",
+                $"[bold green]{r.ExportedLeadsCount}[/]",
+                $"[cyan]{r.OwnersIdentifiedCount}[/]",
                 $"[green]{r.Tier1Count}[/] / [yellow]{r.Tier2Count}[/] / [grey]{r.Tier3Count}[/]",
-                r.TotalDiscardedLeads.ToString(),
-                $"{r.CompletedQueries}/{r.TotalQueries}",
-                r.TotalApiCalls.ToString(),
-                $"${r.TotalSpentUsd:0.000} / ${r.MaxBudgetUsd:0.000}");
+                $"{r.QuotaUsedToday}/{r.QuotaDailyLimit}",
+                $"${r.TotalSpentUsd:0.0000} / ${r.MaxBudgetUsd:0.000}");
         }
 
         AnsiConsole.Write(table);
 
-        foreach (var report in reports.Where(r => r.DiscardReasons.Count > 0))
+        foreach (var report in reports)
         {
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine($"[bold]Descartes — {Markup.Escape(report.CampaignName)}:[/]");
-            RenderDiscardBreakdown(report.DiscardReasons);
+            if (!string.IsNullOrWhiteSpace(report.SpreadsheetUrl))
+            {
+                AnsiConsole.MarkupLine(
+                    $"[bold]Planilha ({Markup.Escape(report.CampaignName)}):[/] [link={Markup.Escape(report.SpreadsheetUrl)}][cyan underline]{Markup.Escape(report.SpreadsheetUrl)}[/][/]");
+            }
+
+            if (report.DiscardReasons.Count > 0)
+            {
+                AnsiConsole.WriteLine();
+                AnsiConsole.MarkupLine($"[bold]Descartes — {Markup.Escape(report.CampaignName)}:[/]");
+                RenderDiscardBreakdown(report.DiscardReasons);
+            }
         }
     }
 

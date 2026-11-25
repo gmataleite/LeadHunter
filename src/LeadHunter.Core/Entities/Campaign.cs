@@ -10,6 +10,8 @@ public sealed class Campaign
     public string ConfigPath { get; set; } = string.Empty;
     public decimal MaxBudgetUsd { get; set; }
     public CampaignStatus Status { get; set; } = CampaignStatus.Created;
+    public string? SpreadsheetId { get; set; }
+    public string? SpreadsheetUrl { get; set; }
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime? LastRunAtUtc { get; set; }
 

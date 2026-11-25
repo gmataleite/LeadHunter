@@ -72,7 +72,19 @@ public sealed class LeadHunterRepository : ILeadHunterRepository
     public Task<int> GetValidLeadsCountAsync(int campaignId, CancellationToken cancellationToken = default) =>
         _dbContext.Leads
             .AsNoTracking()
-            .CountAsync(l => l.CampaignId == campaignId, cancellationToken);
+            .CountAsync(
+                l => l.CampaignId == campaignId && l.EnrichmentStatus != EnrichmentStatus.DiscardedByNiche,
+                cancellationToken);
+
+    public Task<int> GetConfirmedMobileLeadsCountAsync(int campaignId, CancellationToken cancellationToken = default) =>
+        _dbContext.Leads
+            .AsNoTracking()
+            .CountAsync(
+                l => l.CampaignId == campaignId
+                     && l.EnrichmentStatus != EnrichmentStatus.DiscardedByNiche
+                     && ((l.PrimaryPhone != null && l.PrimaryPhone != string.Empty)
+                         || (l.MobilePhone != null && l.MobilePhone != string.Empty)),
+                cancellationToken);
 
     public async Task<bool> PlaceExistsAsync(string placeId, CancellationToken cancellationToken = default)
     {
@@ -111,14 +123,145 @@ public sealed class LeadHunterRepository : ILeadHunterRepository
         await _dbContext.Leads.AddAsync(lead, cancellationToken);
     }
 
+    public Task UpdateLeadAsync(Lead lead, CancellationToken cancellationToken = default)
+    {
+        _dbContext.Leads.Update(lead);
+        return Task.CompletedTask;
+    }
+
+    public async Task<IReadOnlyList<Lead>> GetLeadsPendingEnrichmentAsync(
+        int campaignId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.Leads
+            .Where(l => l.CampaignId == campaignId &&
+                        (l.EnrichmentStatus == EnrichmentStatus.Pending ||
+                         l.EnrichmentStatus == EnrichmentStatus.PendingQuota))
+            .OrderBy(l => l.Tier)
+            .ThenBy(l => l.Id)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Lead>> GetLeadsPendingAnalysisAsync(
+        int campaignId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.Leads
+            .Where(l => l.CampaignId == campaignId &&
+                        l.AnalyzedAtUtc == null &&
+                        l.EnrichmentStatus == EnrichmentStatus.Enriched)
+            .OrderBy(l => l.Tier)
+            .ThenBy(l => l.Id)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Lead>> GetLeadsReadyForExportAsync(
+        int campaignId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.Leads
+            .Where(l => l.CampaignId == campaignId &&
+                        l.ExportedAtUtc == null &&
+                        !l.IsExported &&
+                        l.EnrichmentStatus != EnrichmentStatus.DiscardedByNiche &&
+                        ((l.PrimaryPhone != null && l.PrimaryPhone != string.Empty) ||
+                         (l.MobilePhone != null && l.MobilePhone != string.Empty)))
+            .OrderBy(l => l.Tier)
+            .ThenByDescending(l => l.Rating)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Lead>> GetLeadsPendingQuotaAsync(
+        int campaignId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.Leads
+            .AsNoTracking()
+            .Where(l => l.CampaignId == campaignId && l.EnrichmentStatus == EnrichmentStatus.PendingQuota)
+            .OrderBy(l => l.Tier)
+            .ThenBy(l => l.Id)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<HashSet<string>> GetExportedPrimaryPhonesAsync(CancellationToken cancellationToken = default)
+    {
+        var phones = await _dbContext.Leads
+            .AsNoTracking()
+            .Where(l => (l.ExportedAtUtc != null || l.IsExported) &&
+                        ((l.PrimaryPhone != null && l.PrimaryPhone != string.Empty) ||
+                         (l.MobilePhone != null && l.MobilePhone != string.Empty)))
+            .Select(l => l.PrimaryPhone ?? l.MobilePhone!)
+            .ToListAsync(cancellationToken);
+
+        return new HashSet<string>(phones, StringComparer.Ordinal);
+    }
+
+    public Task MarkLeadsAsExportedAsync(
+        IEnumerable<Lead> leads,
+        DateTime exportedAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        foreach (var lead in leads)
+        {
+            lead.IsExported = true;
+            lead.ExportedAtUtc = exportedAtUtc;
+            lead.UpdatedAtUtc = exportedAtUtc;
+            _dbContext.Leads.Update(lead);
+        }
+
+        return Task.CompletedTask;
+    }
+
     public async Task AddDiscardedLeadAsync(DiscardedLead discardedLead, CancellationToken cancellationToken = default)
     {
+        // Guard against duplicate PlaceId in DiscardedLeads (e.g., if already discarded)
+        if (_dbContext.DiscardedLeads.Local.Any(d => d.PlaceId == discardedLead.PlaceId) ||
+            await _dbContext.DiscardedLeads.AsNoTracking().AnyAsync(d => d.PlaceId == discardedLead.PlaceId, cancellationToken))
+        {
+            return;
+        }
+
         await _dbContext.DiscardedLeads.AddAsync(discardedLead, cancellationToken);
     }
 
     public async Task AddApiCostLogAsync(ApiCostLog log, CancellationToken cancellationToken = default)
     {
         await _dbContext.ApiCostLogs.AddAsync(log, cancellationToken);
+    }
+
+    public async Task<DailyQuotaUsage> GetOrCreateDailyQuotaAsync(
+        string serviceName,
+        DateOnly dateUtc,
+        int dailyLimit,
+        CancellationToken cancellationToken = default)
+    {
+        var existing = await _dbContext.DailyQuotaUsages
+            .FirstOrDefaultAsync(q => q.ServiceName == serviceName && q.DateUtc == dateUtc, cancellationToken);
+
+        if (existing is not null)
+        {
+            existing.DailyLimit = dailyLimit;
+            return existing;
+        }
+
+        var quota = new DailyQuotaUsage
+        {
+            ServiceName = serviceName,
+            DateUtc = dateUtc,
+            QueriesUsed = 0,
+            DailyLimit = dailyLimit,
+            UpdatedAtUtc = DateTime.UtcNow
+        };
+
+        await _dbContext.DailyQuotaUsages.AddAsync(quota, cancellationToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return quota;
+    }
+
+    public Task UpdateDailyQuotaAsync(DailyQuotaUsage quota, CancellationToken cancellationToken = default)
+    {
+        _dbContext.DailyQuotaUsages.Update(quota);
+        return Task.CompletedTask;
     }
 
     public async Task<QueryProgress> GetOrCreateQueryProgressAsync(
@@ -169,6 +312,11 @@ public sealed class LeadHunterRepository : ILeadHunterRepository
             .OrderByDescending(c => c.LastRunAtUtc ?? c.CreatedAtUtc)
             .ToListAsync(cancellationToken);
 
+        var todayUtc = DateOnly.FromDateTime(DateTime.UtcNow);
+        var todayQuota = await _dbContext.DailyQuotaUsages
+            .AsNoTracking()
+            .FirstOrDefaultAsync(q => q.ServiceName == "GoogleCustomSearch" && q.DateUtc == todayUtc, cancellationToken);
+
         var reports = new List<CampaignStatusReport>(campaigns.Count);
 
         foreach (var campaign in campaigns)
@@ -176,8 +324,21 @@ public sealed class LeadHunterRepository : ILeadHunterRepository
             var leads = await _dbContext.Leads
                 .AsNoTracking()
                 .Where(l => l.CampaignId == campaign.Id)
-                .Select(l => new { l.Tier, l.IsExported })
+                .Select(l => new
+                {
+                    l.Tier,
+                    l.IsExported,
+                    l.ExportedAtUtc,
+                    l.EnrichmentStatus,
+                    l.PrimaryPhone,
+                    l.MobilePhone,
+                    l.OwnerName,
+                    l.OwnerConfidence,
+                    l.AnalyzedAtUtc
+                })
                 .ToListAsync(cancellationToken);
+
+            var validLeads = leads.Where(l => l.EnrichmentStatus != EnrichmentStatus.DiscardedByNiche).ToList();
 
             var discardedReasons = await _dbContext.DiscardedLeads
                 .AsNoTracking()
@@ -188,7 +349,7 @@ public sealed class LeadHunterRepository : ILeadHunterRepository
             var apiLogs = await _dbContext.ApiCostLogs
                 .AsNoTracking()
                 .Where(a => a.CampaignId == campaign.Id)
-                .Select(a => a.EstimatedCostUsd)
+                .Select(a => new { a.EstimatedCostUsd, a.TotalTokens })
                 .ToListAsync(cancellationToken);
 
             var queryProgresses = await _dbContext.QueryProgresses
@@ -207,6 +368,12 @@ public sealed class LeadHunterRepository : ILeadHunterRepository
                 }, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
 
+            var confirmedMobileCount = validLeads.Count(l => !string.IsNullOrWhiteSpace(l.PrimaryPhone ?? l.MobilePhone));
+            var ownersIdentifiedCount = validLeads.Count(l =>
+                !string.IsNullOrWhiteSpace(l.OwnerName) &&
+                (string.Equals(l.OwnerConfidence, "Alta", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(l.OwnerConfidence, "Média", StringComparison.OrdinalIgnoreCase)));
+
             reports.Add(new CampaignStatusReport
             {
                 CampaignId = campaign.Id,
@@ -214,17 +381,28 @@ public sealed class LeadHunterRepository : ILeadHunterRepository
                 NicheDescription = campaign.NicheDescription,
                 ConfigPath = campaign.ConfigPath,
                 Status = campaign.Status,
+                SpreadsheetUrl = campaign.SpreadsheetUrl,
                 MaxBudgetUsd = campaign.MaxBudgetUsd,
-                TotalSpentUsd = apiLogs.Sum(),
+                TotalSpentUsd = apiLogs.Sum(a => a.EstimatedCostUsd),
                 TotalApiCalls = apiLogs.Count,
-                TotalValidLeads = leads.Count,
-                Tier1Count = leads.Count(l => l.Tier == LeadTier.Tier1HighPriority),
-                Tier2Count = leads.Count(l => l.Tier == LeadTier.Tier2MediumPriority),
-                Tier3Count = leads.Count(l => l.Tier == LeadTier.Tier3LowPriority),
-                ExportedLeadsCount = leads.Count(l => l.IsExported),
+                TotalGeminiTokens = apiLogs.Sum(a => a.TotalTokens ?? 0),
+                TotalValidLeads = validLeads.Count,
+                ConfirmedMobileCount = confirmedMobileCount,
+                WithoutMobileCount = validLeads.Count - confirmedMobileCount,
+                OwnersIdentifiedCount = ownersIdentifiedCount,
+                EnrichedCount = validLeads.Count(l => l.EnrichmentStatus is EnrichmentStatus.Enriched or EnrichmentStatus.Completed),
+                PendingQuotaCount = validLeads.Count(l => l.EnrichmentStatus == EnrichmentStatus.PendingQuota),
+                AnalyzedCount = leads.Count(l => l.AnalyzedAtUtc != null),
+                DiscardedByNicheCount = leads.Count(l => l.EnrichmentStatus == EnrichmentStatus.DiscardedByNiche),
+                Tier1Count = validLeads.Count(l => l.Tier == LeadTier.Tier1HighPriority),
+                Tier2Count = validLeads.Count(l => l.Tier == LeadTier.Tier2MediumPriority),
+                Tier3Count = validLeads.Count(l => l.Tier == LeadTier.Tier3LowPriority),
+                ExportedLeadsCount = validLeads.Count(l => l.IsExported || l.ExportedAtUtc != null),
                 TotalDiscardedLeads = discardedReasons.Count,
                 CompletedQueries = queryProgresses.Count(done => done),
                 TotalQueries = queryProgresses.Count,
+                QuotaUsedToday = todayQuota?.QueriesUsed ?? 0,
+                QuotaDailyLimit = todayQuota?.DailyLimit ?? 95,
                 CreatedAtUtc = campaign.CreatedAtUtc,
                 LastRunAtUtc = campaign.LastRunAtUtc,
                 DiscardReasons = reasonBuckets
